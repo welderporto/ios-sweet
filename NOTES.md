@@ -476,3 +476,7 @@ Added ginkgo-ram-adt.py and test-ram-boot.py plus a Linux Actions workflow. The 
 ## Secondary-core standalone diagnostic
 
 Added opt-in GOLD_DIAGNOSTIC=1 shim mode. It uses a dedicated stack and PSCI handoff to run the existing MMU/timer/SGI diagnostic on the target secondary core, without loading XNU or accessing storage. The separate Linux workflow tests the secondary-core path in QEMU before producing the phone Image. Physical observations remain in local-only records; no device dumps are included.
+
+## Opt-in ginkgo kernel IRQ probe
+
+Patch 0090 adds nonprinting IRQ counters and a ginkgo_irq_probe=1 CPU-start diagnostic. The polling loop uses the architectural counter and a finite spin limit, without IOSleep, so a nonworking timer does not suppress the diagnostic itself. GIC/ICC/timer snapshots are emitted from normal CPU-start context, never from the IRQ handler. Compilation and physical behavior still require validation. A separate toolchain probe inspects current macOS runners because macos-14 is retired.

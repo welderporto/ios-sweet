@@ -1,0 +1,115 @@
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -20,6 +20,13 @@
+ 
+ extern "C" void sweet_secondary_entry(void);
+ extern "C" boolean_t sweet_cpu_signal_is_enabled(unsigned int cpu);
++#if defined(SWEET_GINKGO)
++extern "C" void sweet_gic_probe(const char *stage);
++extern "C" volatile uint64_t sweet_probe_irq_count;
++extern "C" volatile uint64_t sweet_probe_timer_count;
++extern "C" volatile uint64_t sweet_probe_sgi_count;
++extern "C" volatile uint64_t sweet_probe_last_irq;
++#endif
+ 
+ class SweetCPU;
+ static SweetCPU *sweet_cpus[MAX_CPUS];
+@@ -204,6 +211,12 @@
+ 	}
+ 	assert(cpu_number() == (int)getCPUNumber());
+ 
++#if defined(SWEET_GINKGO)
++	uint32_t probe = 0;
++	PE_parse_boot_argn("ginkgo_irq_probe", &probe, sizeof(probe));
++	if (probe) sweet_gic_probe("before-SGI");
++#endif
++
+ 	ml_broadcast_cpu_event(CPU_BOOTED, getCPUNumber());
+ 
+ 	/* Secondary startup runs at splsched: queue the self-IPI and return.
+@@ -215,6 +228,23 @@
+ 	    getCPUNumber(), __builtin_arm_rsr64("MPIDR_EL1") & 0xffffULL,
+ 	    __builtin_arm_rsr64("CurrentEL") >> 2, ml_get_interrupts_enabled());
+ 	__atomic_store_n(&initialized, 1, __ATOMIC_RELEASE);
++#if defined(SWEET_GINKGO)
++	if (probe) {
++		uint64_t frequency = __builtin_arm_rsr64("CNTFRQ_EL0");
++		for (unsigned int sample = 0; sample < 3; sample++) {
++			uint64_t start = __builtin_arm_rsr64("CNTVCT_EL0");
++			unsigned int spins = 0;
++			/* No IOSleep: a broken timer must not prevent diagnostic output. */
++			while (__builtin_arm_rsr64("CNTVCT_EL0") - start < frequency / 10 &&
++			    spins++ < 10000000U) __asm__ volatile("yield");
++			sweet_gic_probe("after-SGI");
++			kprintf("GINKGO IRQ %u: all=%llu timer=%llu sgi=%llu last=%llu signal=%u\n",
++			    sample, sweet_probe_irq_count, sweet_probe_timer_count,
++			    sweet_probe_sgi_count, sweet_probe_last_irq,
++			    sweet_cpu_signal_is_enabled(getCPUNumber()));
++		}
++	}
++#endif
+ }
+ 
+ void
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -222,6 +222,29 @@
+ 	__builtin_arm_isb(ISB_SY);
+ #endif /* SWEET */
+ }
++#if defined(SWEET_GINKGO)
++void sweet_gic_probe(const char *stage);
++void
++sweet_gic_probe(const char *stage)
++{
++	if (!gicd_base || !gicr_base) {
++		kprintf("GINKGO GIC %s: not initialized\n", stage);
++		return;
++	}
++	vm_offset_t gicr_pe_base = find_gicr_pe_base();
++	kprintf("GINKGO GIC %s: D=%x R=%llx W=%x EN=%x PEND=%x ACT=%x\n",
++	    stage, gicd_read32(GICD_CTLR), (uint64_t)gicr_pe_base,
++	    gicr_read32(GICR_WAKER), gicr_read32(GICR_ISENABLER0),
++	    gicr_read32(0x10200), gicr_read32(0x10300));
++	kprintf("GINKGO ICC: ctl=%llx pmr=%llx group1=%llx pending=%llx daif=%llx\n",
++	    __builtin_arm_rsr64("ICC_CTLR_EL1"), __builtin_arm_rsr64("ICC_PMR_EL1"),
++	    __builtin_arm_rsr64("ICC_IGRPEN1_EL1"), __builtin_arm_rsr64("ICC_HPPIR1_EL1"),
++	    __builtin_arm_rsr64("DAIF"));
++	kprintf("GINKGO TIMER: ctl=%llx cval=%llx now=%llx freq=%llu\n",
++	    __builtin_arm_rsr64("CNTV_CTL_EL0"), __builtin_arm_rsr64("CNTV_CVAL_EL0"),
++	    __builtin_arm_rsr64("CNTVCT_EL0"), __builtin_arm_rsr64("CNTFRQ_EL0"));
++}
++#endif
+ #else
+ void
+ pe_init_fiq()
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1844,6 +1844,13 @@
+ 	__builtin_unreachable();
+ }
+ 
++#if defined(SWEET_GINKGO)
++volatile uint64_t sweet_probe_irq_count;
++volatile uint64_t sweet_probe_timer_count;
++volatile uint64_t sweet_probe_sgi_count;
++volatile uint64_t sweet_probe_last_irq;
++#endif
++
+ void
+ sleh_irq(arm_saved_state_t *state)
+ {
+@@ -1864,6 +1871,13 @@
+ 	if (intid >= 1020 && intid <= 1023) {
+ 		return; /* spurious */
+ 	}
++#if defined(SWEET_GINKGO)
++	/* Counters only: never print or acquire console locks in IRQ context. */
++	sweet_probe_irq_count++;
++	sweet_probe_last_irq = intid;
++	if (intid == sweet_vtimer_intid) sweet_probe_timer_count++;
++	if (intid < 16) sweet_probe_sgi_count++;
++#endif
+ 	if (intid == sweet_vtimer_intid) {
+ 		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
+ 		cdp->cpu_decrementer = -1; /* Large */

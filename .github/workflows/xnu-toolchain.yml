@@ -1,0 +1,27 @@
+name: xnu-toolchain-probe
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ginkgo-ram-bringup]
+    paths: [.github/workflows/xnu-toolchain.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Inspect supported toolchain
+        run: |
+          mkdir -p toolchain
+          sw_vers | tee toolchain/os.txt
+          uname -m | tee toolchain/arch.txt
+          ls -d /Applications/Xcode*.app | tee toolchain/xcodes.txt
+          xcodebuild -version | tee toolchain/xcode.txt
+          xcrun --find iig | tee toolchain/iig-path.txt
+          (xcrun iig --help || true) > toolchain/iig-help.txt 2>&1
+          cat toolchain/iig-help.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xnu-toolchain-probe
+          path: toolchain/
