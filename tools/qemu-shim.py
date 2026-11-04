@@ -136,6 +136,8 @@ def main():
     ap.add_argument('--live', type=int, metavar='PORT',
                     help='serve the screen at http://localhost:PORT/, refreshed every second (no exception log)')
     ap.add_argument('--disk', help='raw image attached as virtio-blk (boot xnu with rd=vblk0)')
+    ap.add_argument('--read-memory', nargs=3, metavar=('ADDRESS', 'SIZE', 'FILE'),
+                    help='save a physical memory range with the final snapshot (test reports)')
     a = ap.parse_args()
 
     out = os.path.abspath(a.outdir)
@@ -175,9 +177,18 @@ def main():
         if p.poll() is not None:
             print(f'qemu exited early: {p.returncode}', file=sys.stderr)
             return 1
-        _, regs, _, _ = qmp(mon, ('stop', {}), ('human-monitor-command', {'command-line': 'info registers -a'}),
-                            ('pmemsave', {'val': FB_BASE, 'size': FB_STRIDE * FB_H, 'filename': f'{out}/fb.raw'}),
-                            ('pmemsave', {'val': TEST_PHYS + TEST_MARK, 'size': 16, 'filename': f'{out}/mark.raw'}))
+        requests = [('stop', {}), ('human-monitor-command', {'command-line': 'info registers -a'}),
+                    ('pmemsave', {'val': FB_BASE, 'size': FB_STRIDE * FB_H, 'filename': f'{out}/fb.raw'}),
+                    ('pmemsave', {'val': TEST_PHYS + TEST_MARK, 'size': 16, 'filename': f'{out}/mark.raw'})]
+        if a.read_memory:
+            address, size, filename = a.read_memory
+            requests.append(('pmemsave', {'val': int(address, 0), 'size': int(size, 0),
+                                         'filename': os.path.abspath(filename)}))
+        results = qmp(mon, *requests)
+        for result in results:
+            if 'error' in result:
+                raise RuntimeError(f'QMP snapshot failed: {result["error"]}')
+        _, regs, _, _ = results[:4]
         open(f'{out}/regs.txt', 'w').write(regs.get('return', str(regs)))
     finally:
         if p.poll() is None:

@@ -33,17 +33,23 @@ jobs:
           cp shim/out/shim.elf artifacts/ginkgo-gold.elf
           GOLD_DIAGNOSTIC=1 BOARD=qemu DTB=/tmp/packaging-only.dtb bash shim/build.sh
           cp shim/out/Image artifacts/qemu-gold-Image
-          python3 tools/qemu-shim.py artifacts/qemu-gold-Image artifacts/qemu-gold --cpu cortex-a76 --smp 8 --mem 3G --secs 6
+          symbol=$(aarch64-linux-gnu-nm shim/out/shim.elf | awk '$3=="gold_diag_report"{print "0x"$1}')
+          test -n "$symbol"
+          report_pa=$((0x40200000 + symbol))
+          python3 tools/qemu-shim.py artifacts/qemu-gold-Image artifacts/qemu-gold --cpu cortex-a76 --smp 8 --mem 3G --secs 6 --read-memory "$report_pa" 48 artifacts/gold-report.bin
           tesseract artifacts/qemu-gold/fb.png artifacts/qemu-gold/screen --psm 6
           python3 - <<'PY'
           from pathlib import Path
-          import re
+          import struct
           text = Path('artifacts/qemu-gold/screen.txt').read_text()
           print(text)
-          assert 'GOLD CPU diag' in text, 'Gold diagnostic did not reach its report'
-          assert re.search(r'MMU\s+rc=0+\s', text), '16K MMU test did not pass'
-          for label in ('VTIMER', 'SGI1'):
-              assert re.search(label + r'\s+irqs=0*[1-9A-Fa-f][0-9A-Fa-f]*\s', text), label + ' did not receive interrupts'
+          values = struct.unpack('<QQqQQQ', Path('artifacts/gold-report.bin').read_bytes())
+          magic, mpidr, mmu_rc, vtimer_irqs, sgi_irqs, complete = values
+          print('Diagnostic memory report:', values)
+          assert magic == 0x474f4c4444494147 and complete == 1, 'Incomplete report'
+          assert mpidr & 0xffffff == 4, 'Diagnostic did not run on the secondary core'
+          assert mmu_rc == 0, '16K MMU test failed'
+          assert vtimer_irqs > 0 and sgi_irqs == 10, 'Timer/SGI delivery failed'
           Path('artifacts/result.txt').write_text('PASS: QEMU secondary-core diagnostic, 16K MMU, virtual timer and SGI\n')
           PY
           find artifacts -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > artifacts/SHA256SUMS

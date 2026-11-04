@@ -221,6 +221,14 @@ static void __attribute__((unused)) smp_report(void)
 }
 
 /* ---- GIC + timer ---- */
+#ifdef SWEET_GOLD_DIAGNOSTIC
+/* Machine-readable QEMU test evidence; no storage or firmware interaction. */
+volatile struct {
+	uint64_t magic, mpidr;
+	int64_t mmu_rc;
+	uint64_t vtimer_irqs, sgi_irqs, complete;
+} gold_diag_report;
+#endif
 
 static uintptr_t find_gicr(void)
 {
@@ -290,6 +298,10 @@ static void irq_window(const char *label, uintptr_t r, int src)
 	isb();
 
 	con_hex2(label, "irqs=", irq_count, "other=", irq_other);
+#ifdef SWEET_GOLD_DIAGNOSTIC
+	if (src == VTIMER_INTID) gold_diag_report.vtimer_irqs = irq_count;
+	if (src == SGI_INTID) gold_diag_report.sgi_irqs = irq_count;
+#endif
 	con_hex2(" pre", "pend=", pend, "act=", act);
 	con_hex2(" pre", "isr=", isr, "hppi=", hppi);
 	con_hex2(" pre", "tctl=", ist, "last=", irq_last);
@@ -413,6 +425,8 @@ void shim_main(uint64_t dtb)
 		psci(PSCI_CPU_OFF, 0, 0, 0);
 		for (;;) __asm__ volatile("wfe");
 	}
+	gold_diag_report.magic = 0x474f4c4444494147ULL;
+	gold_diag_report.mpidr = rsr("mpidr_el1");
 #else
 	/* An xnu payload in the ramdisk means: boot it (MMU stays off). */
 	stage = "loader";
@@ -445,6 +459,9 @@ void shim_main(uint64_t dtb)
 	stage = "mmu enable";
 	/* The test tables use the 16K granule; Cortex-A53 only has 4K/64K. */
 	int rc = ((rsr("id_aa64mmfr0_el1") >> 20) & 0xf) ? mmu_enable(&mi) : -2;
+#ifdef SWEET_GOLD_DIAGNOSTIC
+	gold_diag_report.mmu_rc = rc;
+#endif
 
 	stage = "fill on";
 	uint64_t fill_on = rc ? 0 : ticks_fill(RED);
@@ -490,5 +507,8 @@ void shim_main(uint64_t dtb)
 #endif
 
 	stage = "done";
+#ifdef SWEET_GOLD_DIAGNOSTIC
+	gold_diag_report.complete = 1;
+#endif
 	reset(40);
 }
