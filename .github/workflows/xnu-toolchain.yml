@@ -21,6 +21,22 @@ jobs:
           xcrun --find iig | tee toolchain/iig-path.txt
           (xcrun iig --help || true) > toolchain/iig-help.txt 2>&1
           cat toolchain/iig-help.txt
+      - name: Check older IIG deployment targets
+        run: |
+          curl -fLsS --max-time 30 https://raw.githubusercontent.com/apple-oss-distributions/xnu/xnu-8796.121.2/iokit/DriverKit/OSObject.iig -o toolchain/OSObject.iig
+          sdk=$(xcrun --sdk driverkit --show-sdk-path)
+          for target in default 13.5 22.0 macos13.5; do
+            mkdir -p "toolchain/$target"
+            options=()
+            if [ "$target" != default ]; then options=(--deployment-target "$target"); fi
+            if xcrun iig --def toolchain/OSObject.iig --header "toolchain/$target/OSObject.h" --impl "toolchain/$target/OSObject.iig.cpp" --framework-name DriverKit "${options[@]}" -- -isysroot "$sdk" -x c++ -std=gnu++17 -D__IIG=1 -DDRIVERKIT_PRIVATE=1 -DPRIVATE_WIFI_ONLY=1 > "toolchain/$target/log.txt" 2>&1; then
+              echo "$target: generated"
+              grep -n kernelContent "toolchain/$target/OSObject.iig.cpp" || true
+            else
+              echo "$target: generation failed"
+              cat "toolchain/$target/log.txt"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: xnu-toolchain-probe
