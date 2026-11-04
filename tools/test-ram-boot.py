@@ -45,7 +45,7 @@ try:
         try:
             msg.main()
         except SystemExit:
-            continue
+            pass
         text = log.read_text(errors='replace') if log.exists() else ''
         # /dev/console writes need not enter the kernel's message ring.
         # Capture and OCR the actual guest screen as independent evidence.
