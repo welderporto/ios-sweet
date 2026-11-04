@@ -9,13 +9,18 @@ on:
       - tools/test-ram-boot.py
 permissions:
   contents: read
+  actions: read
+env:
+  KERNEL_REPOSITORY: welderporto/ios-sweet
+  KERNEL_RUN: '41936352901'
+  KERNEL_SOURCE_COMMIT: 0cf799f99a64edc59278552eb5a2e668911a3898
 concurrency:
   group: ginkgo-ram-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   ram-test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Install build dependencies
@@ -26,14 +31,19 @@ jobs:
           mkdir -p /tmp/mkbootimg
           curl --connect-timeout 15 --max-time 90 --retry 1 -fLsS https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/refs/heads/main.tar.gz | tar xz -C /tmp/mkbootimg
           sudo ln -s /tmp/mkbootimg/mkbootimg.py /usr/local/bin/mkbootimg
-      - name: Download known ginkgo kernel
+      - name: Wait for and verify instrumented ginkgo kernel
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p artifacts/kernel
-          gh run download 39686433049 -R edadras/ios-sweet -n xnu-kernel-ginkgo -D artifacts/kernel
-          echo 'b906b3a0f3fe94f1b987a043bae5d0857e80f4ed5337fdebb99941479da578d2  artifacts/kernel/kernel.development.sweet' | sha256sum -c -
+          gh run watch "$KERNEL_RUN" -R "$KERNEL_REPOSITORY" --interval 30 --exit-status
+          test "$(gh api repos/$KERNEL_REPOSITORY/actions/runs/$KERNEL_RUN --jq .head_sha)" = "$KERNEL_SOURCE_COMMIT"
+          gh run download "$KERNEL_RUN" -R "$KERNEL_REPOSITORY" -n xnu-kernel-ginkgo-slim -D artifacts/kernel
+          digest=$(awk '$2=="kernel.development.sweet"{print $1}' artifacts/kernel/SHA256SUMS)
+          test "${#digest}" = 64
+          python3 tools/verify-ginkgo-isa.py artifacts/kernel/kernel.development.sweet "$digest"
           python3 tools/check-isa.py artifacts/kernel/kernel.development.sweet | tee artifacts/kernel-isa.txt
+          printf '{"repository":"%s","kernelRun":"%s","kernelCommit":"%s","kernelSha256":"%s"}\n' "$KERNEL_REPOSITORY" "$KERNEL_RUN" "$KERNEL_SOURCE_COMMIT" "$digest" > artifacts/source.json
       - name: Build shims and open source init
         run: |
           mkdir -p artifacts
@@ -55,13 +65,27 @@ jobs:
             extra=()
             if [ "$target" = qemu ]; then extra=(--qemu); fi
             python3 tools/ginkgo-ram-adt.py artifacts/$target.adt "${extra[@]}"
-            python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/$target.adt artifacts/$target-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1'
+            python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/$target.adt artifacts/$target-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 ginkgo_irq_probe=1 startup_debug=1'
           done
           python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/qemu-payload.bin artifacts/ram-test | tee artifacts/ram-test-result.txt
           find artifacts -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > artifacts/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ginkgo-ram-bringup
-          path: artifacts/
+          name: ginkgo-irq-probe
+          path: |
+            artifacts/ginkgo-Image
+            artifacts/phone-payload.bin
+            artifacts/phone.adt
+            artifacts/kernel/kernel.development.sweet
+            artifacts/kernel/SHA256SUMS
+            artifacts/kernel-isa.txt
+            artifacts/init-isa.txt
+            artifacts/init.macho
+            artifacts/ram-test-result.txt
+            artifacts/ram-test/fb.png
+            artifacts/ram-test/kernel.txt
+            artifacts/ram-test/screen.txt
+            artifacts/source.json
+            artifacts/SHA256SUMS
           retention-days: 30
