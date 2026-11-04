@@ -12,8 +12,8 @@ permissions:
   actions: read
 env:
   KERNEL_REPOSITORY: welderporto/ios-sweet
-  KERNEL_RUN: '41936352901'
-  KERNEL_SOURCE_COMMIT: 0cf799f99a64edc59278552eb5a2e668911a3898
+  KERNEL_RUN: '41936932602'
+  KERNEL_SOURCE_COMMIT: 59b9b4e464f61217572b6601401eff667f2e1c35
 concurrency:
   group: ginkgo-ram-${{ github.ref }}
   cancel-in-progress: true
