@@ -7,8 +7,17 @@ bearssl_sha=7bea48e5e850ab4cafbe68d3765cdaba13a86d6f
 bearssl_tmp=$(mktemp -d)
 trap 'rm -rf "$bearssl_tmp"' EXIT
 git init -q "$bearssl_tmp"
-git -C "$bearssl_tmp" fetch -q --depth 1 \
-    https://www.bearssl.org/git/BearSSL "$bearssl_sha"
+fetched=0
+# Keep the exact upstream commit even when its server is unavailable. The
+# mirror is a transport fallback, not a different dependency revision.
+for source in https://www.bearssl.org/git/BearSSL https://github.com/unkaktus/bearssl.git; do
+    if GIT_HTTP_LOW_SPEED_LIMIT=1024 GIT_HTTP_LOW_SPEED_TIME=30 \
+        git -C "$bearssl_tmp" fetch -q --depth 1 "$source" "$bearssl_sha"; then
+        fetched=1
+        break
+    fi
+done
+[[ "$fetched" == 1 ]] || { echo "Unable to fetch pinned BearSSL commit" >&2; exit 1; }
 git -C "$bearssl_tmp" checkout -q FETCH_HEAD
 [[ "$(git -C "$bearssl_tmp" rev-parse HEAD)" == "$bearssl_sha" ]]
 python3 - "$bearssl_tmp" <<'PY'
