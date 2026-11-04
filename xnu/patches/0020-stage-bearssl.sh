@@ -10,7 +10,7 @@ git init -q "$bearssl_tmp"
 fetched=0
 # Keep the exact upstream commit even when its server is unavailable. The
 # mirror is a transport fallback, not a different dependency revision.
-for source in https://www.bearssl.org/git/BearSSL https://github.com/unkaktus/bearssl.git; do
+for source in https://www.bearssl.org/git/BearSSL https://github.com/AmanoTeam/BearSSL.git; do
     if GIT_HTTP_LOW_SPEED_LIMIT=1024 GIT_HTTP_LOW_SPEED_TIME=30 \
         git -C "$bearssl_tmp" fetch -q --depth 1 "$source" "$bearssl_sha"; then
         fetched=1
