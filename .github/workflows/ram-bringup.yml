@@ -1,6 +1,12 @@
 name: ginkgo-ram-bringup
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/ginkgo-ram-bringup]
+    paths:
+      - .github/workflows/ram-bringup.yml
+      - tools/ginkgo-ram-adt.py
+      - tools/test-ram-boot.py
 permissions:
   contents: read
 jobs:
