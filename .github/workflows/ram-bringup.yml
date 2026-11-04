@@ -1,0 +1,57 @@
+name: ginkgo-ram-bringup
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ram-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc clang qemu-system-arm cpio gzip gawk tesseract-ocr
+          mkdir -p /tmp/mkbootimg
+          curl -fLsS https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/refs/heads/main.tar.gz | tar xz -C /tmp/mkbootimg
+          sudo ln -s /tmp/mkbootimg/mkbootimg.py /usr/local/bin/mkbootimg
+      - name: Download known ginkgo kernel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/kernel
+          gh run download 39686433049 -R edadras/ios-sweet -n xnu-kernel-ginkgo -D artifacts/kernel
+          echo 'b906b3a0f3fe94f1b987a043bae5d0857e80f4ed5337fdebb99941479da578d2  artifacts/kernel/kernel.development.sweet' | sha256sum -c -
+          python3 tools/check-isa.py artifacts/kernel/kernel.development.sweet | tee artifacts/kernel-isa.txt
+      - name: Build shims and open source init
+        run: |
+          mkdir -p artifacts
+          qemu-system-aarch64 -M virt,dumpdtb=/tmp/packaging-only.dtb -cpu cortex-a53 -smp 8 -m 3G -nographic
+          # This FDT is only for build.sh packaging. Its boot.img is discarded.
+          # The phone boot.img must be packaged locally with its own stock DTB.
+          BOARD=ginkgo DTB=/tmp/packaging-only.dtb bash shim/build.sh
+          cp shim/out/Image artifacts/ginkgo-Image
+          cp shim/out/shim.elf artifacts/ginkgo-shim.elf
+          BOARD=qemu DTB=/tmp/packaging-only.dtb bash shim/build.sh
+          cp shim/out/Image artifacts/qemu-Image
+          python3 tools/qemu-shim.py artifacts/qemu-Image artifacts/diagnostic --cpu cortex-a53 --smp 17 --mem 3G --test-payload
+          clang -target arm64-apple-ios16.0 -c tools/sweet-init.S -o artifacts/init.o
+          python3 tools/mkinit.py artifacts/init.o artifacts/init.macho
+          python3 tools/check-isa.py artifacts/init.macho | tee artifacts/init-isa.txt
+      - name: Build payloads and prove PID 1
+        run: |
+          for target in phone qemu; do
+            extra=()
+            if [ "$target" = qemu ]; then extra=(--qemu); fi
+            python3 tools/ginkgo-ram-adt.py artifacts/$target.adt "${extra[@]}"
+            python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/$target.adt artifacts/$target-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1'
+          done
+          python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/qemu-payload.bin artifacts/ram-test | tee artifacts/ram-test-result.txt
+          find artifacts -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > artifacts/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ginkgo-ram-bringup
+          path: artifacts/
+          retention-days: 30

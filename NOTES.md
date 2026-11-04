@@ -468,3 +468,7 @@ What it took today (in order): 0058 HID services (Apple IOHIDFamily-1915 user cl
      cpu_init, before arm_vm_init.
   5. panic hook at top of panic_trap_to_debugger: va_copy + _doprnt(fmt, &copy, sweet_early_putc, 16).
   Verify with tools/xnu-cc.py (compile+symbols) and patch-order simulation before the single CI run.
+
+## RAM-only validation tooling, 2026-11-04
+
+Added ginkgo-ram-adt.py and test-ram-boot.py plus a Linux Actions workflow. The workflow builds diagnostic shims and a source-only mockfs init, then requires PID 1 and a console heartbeat in QEMU. Phone DTBs must be supplied locally; build-time QEMU DTBs are never intended for a physical phone. No physical-device result is claimed by these tools.
