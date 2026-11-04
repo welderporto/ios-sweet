@@ -40,6 +40,28 @@ _start:
 	b	3b
 
 /* PSCI CPU_ON target. x0 = context id = cpu index (1..7). */
+#ifdef SWEET_GOLD_DIAGNOSTIC
+/* Independent stack: the original boot core may still be entering CPU_OFF. */
+	.globl gold_diagnostic_entry
+gold_diagnostic_entry:
+	msr	daifset, #0xf
+	msr	spsel, #1
+	adr	x1, gold_diagnostic_stack_top
+	mov	sp, x1
+	adr	x1, vectors
+	msr	vbar_el1, x1
+	isb
+	bl	shim_main
+5:	wfe
+	b	5b
+	.pushsection .bss
+	.balign 16
+gold_diagnostic_stack:
+	.skip 16384
+gold_diagnostic_stack_top:
+	.popsection
+#endif
+
 	.globl secondary_entry
 secondary_entry:
 	msr	daifset, #0xf

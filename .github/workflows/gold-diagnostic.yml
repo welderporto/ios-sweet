@@ -1,0 +1,55 @@
+name: ginkgo-gold-diagnostic
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ginkgo-ram-bringup]
+    paths:
+      - .github/workflows/gold-diagnostic.yml
+      - shim/**
+permissions:
+  contents: read
+concurrency:
+  group: gold-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        timeout-minutes: 5
+        run: |
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 update -qq
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc qemu-system-arm cpio gzip gawk tesseract-ocr
+          mkdir -p /tmp/mkbootimg artifacts
+          curl --connect-timeout 15 --max-time 90 --retry 1 -fLsS https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/refs/heads/main.tar.gz | tar xz -C /tmp/mkbootimg
+          sudo ln -s /tmp/mkbootimg/mkbootimg.py /usr/local/bin/mkbootimg
+      - name: Build and test gold diagnostic
+        run: |
+          qemu-system-aarch64 -M virt,dumpdtb=/tmp/packaging-only.dtb -cpu cortex-a53 -smp 8 -m 3G -nographic
+          GOLD_DIAGNOSTIC=1 BOARD=ginkgo DTB=/tmp/packaging-only.dtb bash shim/build.sh
+          cp shim/out/Image artifacts/ginkgo-gold-Image
+          cp shim/out/shim.elf artifacts/ginkgo-gold.elf
+          GOLD_DIAGNOSTIC=1 BOARD=qemu DTB=/tmp/packaging-only.dtb bash shim/build.sh
+          cp shim/out/Image artifacts/qemu-gold-Image
+          python3 tools/qemu-shim.py artifacts/qemu-gold-Image artifacts/qemu-gold --cpu cortex-a76 --smp 8 --mem 3G --secs 6
+          tesseract artifacts/qemu-gold/fb.png artifacts/qemu-gold/screen --psm 6
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          text = Path('artifacts/qemu-gold/screen.txt').read_text()
+          print(text)
+          assert 'GOLD CPU diag' in text, 'Gold diagnostic did not reach its report'
+          assert re.search(r'MMU\s+rc=0+\s', text), '16K MMU test did not pass'
+          for label in ('VTIMER', 'SGI1'):
+              assert re.search(label + r'\s+irqs=0*[1-9A-Fa-f][0-9A-Fa-f]*\s', text), label + ' did not receive interrupts'
+          Path('artifacts/result.txt').write_text('PASS: QEMU secondary-core diagnostic, 16K MMU, virtual timer and SGI\n')
+          PY
+          find artifacts -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > artifacts/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ginkgo-gold-diagnostic
+          path: artifacts/
+          retention-days: 30

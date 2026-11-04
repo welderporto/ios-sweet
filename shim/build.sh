@@ -12,6 +12,9 @@ CC=aarch64-linux-gnu-gcc
 OBJCOPY=aarch64-linux-gnu-objcopy
 CFLAGS="-O2 -ffreestanding -nostdlib -fno-pic -mgeneral-regs-only -mstrict-align -fno-stack-protector -Wall -Wextra"
 CFLAGS="$CFLAGS -DBOARD_$(echo "$BOARD" | tr a-z A-Z)"
+if [ "${GOLD_DIAGNOSTIC:-0}" = 1 ]; then
+	CFLAGS="$CFLAGS -DSWEET_GOLD_DIAGNOSTIC"
+fi
 mkdir -p out
 for f in start.S shim.c console.c mmu.c fdt.c loader.c ufs.c; do
 	$CC $CFLAGS -c $f -o out/${f%.*}.o

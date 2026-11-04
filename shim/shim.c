@@ -391,6 +391,29 @@ void shim_main(uint64_t dtb)
 {
 	static struct mmu_info mi;	/* zero if the MMU test is skipped */
 
+#ifdef SWEET_GOLD_DIAGNOSTIC
+	/* Test the same kind of core used by XNU, independently of XNU. */
+	extern void gold_diagnostic_entry(void);
+#if defined(BOARD_QEMU)
+	const uint64_t gold_target = 4; /* QEMU's first cluster, within 8 GICR frames */
+#else
+	const uint64_t gold_target = BOARD_XNU_MPIDR;
+#endif
+	if ((rsr("mpidr_el1") & 0xffffff) != gold_target) {
+		stage = "gold handoff";
+		con_clear(RED);
+		con_hex("GOLD CPU", gold_target);
+		__asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");
+		int64_t ret = (int64_t)psci(PSCI_CPU_ON, gold_target,
+		    (uintptr_t)gold_diagnostic_entry, dtb);
+		if (ret != 0) {
+			con_hex("CPU_ON", (uint64_t)ret);
+			reset(40);
+		}
+		psci(PSCI_CPU_OFF, 0, 0, 0);
+		for (;;) __asm__ volatile("wfe");
+	}
+#else
 	/* An xnu payload in the ramdisk means: boot it (MMU stays off). */
 	stage = "loader";
 	con_clear(RED);
@@ -399,6 +422,7 @@ void shim_main(uint64_t dtb)
 	const char *why = loader_boot(dtb);
 	con_str("LOADER", why);
 	con_skip();
+#endif
 
 #if BOARD_HAS_UFS
 	/* No payload: probe the internal UFS while the MMU is still off. */
@@ -428,7 +452,12 @@ void shim_main(uint64_t dtb)
 	if (rc)
 		con_clear(RED);
 
+#ifdef SWEET_GOLD_DIAGNOSTIC
+	con_str("SHIM", BOARD_NAME " GOLD CPU diag");
+	con_hex("MPIDR", rsr("mpidr_el1"));
+#else
 	con_str("SHIM", BOARD_NAME " milestone 3");
+#endif
 	con_skip();
 	/* ISAR0 bits 23:20 = LSE atomics, MMFR1 bits 23:20 = PAN (0 = absent: ARMv8.0) */
 	con_hex2("ISA", "lse=", (rsr("id_aa64isar0_el1") >> 20) & 0xf, "pan=", (rsr("id_aa64mmfr1_el1") >> 20) & 0xf);
