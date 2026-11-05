@@ -43,11 +43,12 @@ jobs:
           test "${#digest}" = 64
           python3 tools/verify-ginkgo-isa.py artifacts/kernel/kernel.development.sweet "$digest"
           python3 tools/check-isa.py artifacts/kernel/kernel.development.sweet | tee artifacts/kernel-isa.txt
+          python3 -c "from pathlib import Path; data=Path('artifacts/kernel/kernel.development.sweet').read_bytes(); assert all(marker in data for marker in (b'ginkgo_irq_probe', b'GINKGO GIC %s:', b'GINKGO IRQ %u:')), 'IRQ probe is absent from linked kernel'"
           printf '{"repository":"%s","kernelRun":"%s","kernelCommit":"%s","kernelSha256":"%s"}\n' "$KERNEL_REPOSITORY" "$KERNEL_RUN" "$KERNEL_SOURCE_COMMIT" "$digest" > artifacts/source.json
       - name: Build shims and open source init
         run: |
           mkdir -p artifacts
-          qemu-system-aarch64 -M virt,dumpdtb=/tmp/packaging-only.dtb -cpu cortex-a53 -smp 8 -m 3G -nographic
+          qemu-system-aarch64 -M virt,dumpdtb=/tmp/packaging-only.dtb -cpu cortex-a53 -smp 8 -m 3G -nographic -nic none
           # This FDT is only for build.sh packaging. Its boot.img is discarded.
           # The phone boot.img must be packaged locally with its own stock DTB.
           BOARD=ginkgo DTB=/tmp/packaging-only.dtb bash shim/build.sh
