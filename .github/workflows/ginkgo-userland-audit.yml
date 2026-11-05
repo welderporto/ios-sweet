@@ -1,0 +1,38 @@
+name: ginkgo-userland-audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ginkgo-ram-bringup]
+    paths:
+      - .github/workflows/ginkgo-userland-audit.yml
+      - tools/audit-ginkgo-userland.py
+permissions:
+  contents: read
+concurrency:
+  group: userland-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  audit:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned iOS 16.7.16 from Apple
+        timeout-minutes: 15
+        run: |
+          mkdir -p artifacts
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 800 \
+            'https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw' \
+            -o "$RUNNER_TEMP/ios.ipsw"
+      - name: Read-only startup and shared-cache ISA audit
+        timeout-minutes: 23
+        run: |
+          set -o pipefail
+          python3 tools/audit-ginkgo-userland.py "$RUNNER_TEMP/ios.ipsw" "$RUNNER_TEMP/ios-audit" artifacts/userland-isa.json | tee artifacts/userland-isa.log
+          git rev-parse HEAD > artifacts/source-commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ginkgo-userland-audit
+          path: artifacts/
+          retention-days: 14
