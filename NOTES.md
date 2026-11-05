@@ -1,3 +1,9 @@
+## ginkgo userland compatibility work (2026-11-05)
+
+The next stage audits iOS 16.7.16 build 20H392 startup programs and shared-cache code before another physical experiment. The Apple IPSW is SHA-1 pinned, selected ZIP members are CRC-checked, and macOS mounts them read-only. No Apple binaries are published in artifacts; only metadata and logs.
+
+Initial audit 42106355653 was canceled after obtaining partial results: the old executable-segment/mapping scanner also includes strings and other data. Its instruction candidates are not evidence of an unavoidable CPU incompatibility. The revised audit reads instruction-flagged Mach-O sections, resolves each dylib through the main cache image-text table and all subcache VM mappings, and records candidate counts per library. A native C scanner is checked against the Python reference on deterministic random words before use. Read-only mounts have bounded timeouts and metadata reports are checkpointed. No new phone boot or partition write is part of this stage.
+
 ## ginkgo RAM-only physical milestone (2026-11-04)
 
 A user-supplied photo of the physical Redmi Note 8 confirms `BSD root: md0`, `load_init_program` selecting `/sbin/launchd`, `*** SWEET userspace: init running as PID 1 ***`, and repeated `SWEET init: still alive`. This is the open-source minimal RAM userspace, not the iOS graphical system. Return to Android after this test is verified over ADB (`sys.boot_completed=1`, matching product and original firmware); hashes of boot, recovery, dtbo and vbmeta match their original backups. The first RAM-only physical boot milestone is complete. No partition flashing was performed; the image was loaded with temporary `fastboot boot`.

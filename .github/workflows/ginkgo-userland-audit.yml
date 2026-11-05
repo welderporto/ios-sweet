@@ -7,6 +7,8 @@ on:
       - .github/workflows/ginkgo-userland-audit.yml
       - tools/audit-ginkgo-userland.py
       - tools/test-userland-audit.py
+      - tools/userland-code.py
+      - tools/isa-scan.c
 permissions:
   contents: read
 concurrency:
@@ -19,7 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify the ISA audit controls
-        run: python3 tools/test-userland-audit.py
+        run: |
+          clang -O3 -dynamiclib tools/isa-scan.c -o "$RUNNER_TEMP/isa-scan.dylib"
+          ISA_SCAN_LIBRARY="$RUNNER_TEMP/isa-scan.dylib" python3 tools/test-userland-audit.py
       - name: Fetch pinned iOS 16.7.16 from Apple
         timeout-minutes: 15
         run: |
@@ -31,7 +35,7 @@ jobs:
         timeout-minutes: 23
         run: |
           set -o pipefail
-          python3 tools/audit-ginkgo-userland.py "$RUNNER_TEMP/ios.ipsw" "$RUNNER_TEMP/ios-audit" artifacts/userland-isa.json | tee artifacts/userland-isa.log
+          python3 tools/audit-ginkgo-userland.py "$RUNNER_TEMP/ios.ipsw" "$RUNNER_TEMP/ios-audit" artifacts/userland-isa.json --native "$RUNNER_TEMP/isa-scan.dylib" | tee artifacts/userland-isa.log
           git rev-parse HEAD > artifacts/source-commit.txt
       - uses: actions/upload-artifact@v4
         if: always()
