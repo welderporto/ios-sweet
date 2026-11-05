@@ -65,7 +65,7 @@ class AuditTests(unittest.TestCase):
             path = Path(tmp) / 'code'
             self.fixture(path, 0xc8a07c00)
             data = bytearray(path.read_bytes())
-            struct.pack_into('<I', data, 104 + 64, 0)  # section has no instruction flags
+            struct.pack_into('<I', data, 104 + 64, 0x40000000)  # S_ATTR_NO_TOC is not code
             path.write_bytes(data)
             result = audit.audit_file(path, 'strings', isa)
             self.assertEqual(result['instructionWords'], 0)

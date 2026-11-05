@@ -28,7 +28,7 @@ def sections(header):
                 name = header[q:q + 16].split(b'\0')[0].decode()
                 address, size, offset = struct.unpack_from('<2QI', header, q + 32)
                 flags = struct.unpack_from('<I', header, q + 64)[0]
-                if flags & 0xc0000000 and size:
+                if flags & 0x80000400 and size:
                     yield name, address, size, offset
         p += length
 
