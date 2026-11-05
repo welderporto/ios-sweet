@@ -13,13 +13,13 @@ CLASSES = ('lse', 'rcpc', 'pan', 'pauth', 'rdm', 'dotprod', 'fp16')
 
 
 def sections(header):
-    magic, cpu, _, _, ncmds, size, _, _ = struct.unpack_from('<8I', header)
+    magic, cpu, _, _, ncmds, command_size, _, _ = struct.unpack_from('<8I', header)
     assert magic == 0xfeedfacf and cpu == 0x100000c, 'Expected arm64 Mach-O'
-    assert 32 + size <= len(header), 'Truncated Mach-O commands'
+    assert 32 + command_size <= len(header), 'Truncated Mach-O commands'
     p = 32
     for _ in range(ncmds):
         cmd, length = struct.unpack_from('<2I', header, p)
-        assert length >= 8 and p + length <= 32 + size
+        assert length >= 8 and p + length <= 32 + command_size
         if cmd == 0x19:
             nsects = struct.unpack_from('<I', header, p + 64)[0]
             assert length >= 72 + 80 * nsects

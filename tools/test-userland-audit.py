@@ -71,6 +71,19 @@ class AuditTests(unittest.TestCase):
             self.assertEqual(result['instructionWords'], 0)
             self.assertFalse(result['candidateCounts'])
 
+    def test_commands_after_code_segment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'code'
+            self.fixture(path, 0xd503201f)
+            original = path.read_bytes()
+            data = bytearray(original[:184] + struct.pack('<2I16s', 0x1b, 24, b'UUID-control') + original[184:])
+            struct.pack_into('<2I', data, 16, 2, 176)
+            struct.pack_into('<I', data, 104 + 48, 208)
+            path.write_bytes(data)
+            result = audit.audit_file(path, 'multiple commands', isa)
+            self.assertEqual(result['instructionWords'], 1)
+            self.assertFalse(result['candidateCounts'])
+
     def test_split_cache_resolves_image_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
