@@ -484,3 +484,7 @@ Patch 0090 adds nonprinting IRQ counters and a ginkgo_irq_probe=1 CPU-start diag
 ## macOS 15 / Xcode 16.4 build compatibility
 
 macos-14 runners retired 2026-11-02. Toolchain inspection confirmed Xcode 16.4 IIG emits kernelContent even with older numeric deployment targets. iig-legacy.py selects only the recognized contiguous Mach-message alternatives already emitted by IIG, retaining xnu-8796 four-field IORPC layout and kernel-specific class branches. Unknown content-pointer patterns fail closed. The adapter passed local checks against real generated OSObject output; the build also compiles and runs a four-field layout/content fixture before kernel compilation. Full kernel build and QEMU runtime still need validation. No new physical kernel result is claimed.
+
+## Ginkgo SGI/PPI rearm at registered CPU start
+
+Patch 0091 re-establishes distributor forwarding and an awake redistributor before repeating the existing SGI/PPI configuration at SweetCPU::initCPU. It masks local interrupts during configuration, checks the enable-register readback, and restores the previous interrupt state. The distributor write wait has a finite limit; missing SGI/timer enable bits produce an explicit panic instead of an unexplained scheduler wait. Other boards retain their existing path. Compilation, QEMU and physical verification remain pending for this patch.

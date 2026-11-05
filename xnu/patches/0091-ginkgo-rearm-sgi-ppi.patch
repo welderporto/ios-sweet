@@ -1,0 +1,59 @@
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -22,6 +22,7 @@
+ extern "C" boolean_t sweet_cpu_signal_is_enabled(unsigned int cpu);
+ #if defined(SWEET_GINKGO)
+ extern "C" void sweet_gic_probe(const char *stage);
++extern "C" void sweet_gic_prepare_cpu(void);
+ extern "C" volatile uint64_t sweet_probe_irq_count;
+ extern "C" volatile uint64_t sweet_probe_timer_count;
+ extern "C" volatile uint64_t sweet_probe_sgi_count;
+@@ -212,6 +213,8 @@
+ 	assert(cpu_number() == (int)getCPUNumber());
+ 
+ #if defined(SWEET_GINKGO)
++	/* CPU registration must not inherit disabled SGI/PPI sources. */
++	sweet_gic_prepare_cpu();
+ 	uint32_t probe = 0;
+ 	PE_parse_boot_argn("ginkgo_irq_probe", &probe, sizeof(probe));
+ 	if (probe) sweet_gic_probe("before-SGI");
+--- a/pexpert/arm/pe_fiq.c
++++ b/pexpert/arm/pe_fiq.c
+@@ -223,6 +223,37 @@
+ #endif /* SWEET */
+ }
+ #if defined(SWEET_GINKGO)
++void sweet_gic_prepare_cpu(void);
++void
++sweet_gic_prepare_cpu(void)
++{
++	boolean_t interrupts = ml_set_interrupts_enabled(FALSE);
++	vm_offset_t gicr_pe_base = find_gicr_pe_base();
++	uint32_t required = (1U << sweet_vtimer_intid) | (1U << SWEET_IPI_SGI);
++	uint32_t before = gicr_read32(GICR_ISENABLER0);
++
++	/* Match the standalone diagnostic's order: forwarding before SGI/PPI
++	 * configuration, with the redistributor explicitly marked awake. */
++	gicd_write32(GICD_CTLR, gicd_read32(GICD_CTLR) |
++	    GICD_CTLR_ARE_NS | GICD_CTLR_ENABLEGRP1A | GICD_CTLR_ENABLEGRP1);
++	__builtin_arm_dsb(DSB_SY);
++	unsigned int spins = 0;
++	while (gicd_read32(GICD_CTLR) & GICD_CTLR_RWP) {
++		if (++spins == 1000000U) panic("GINKGO GIC: distributor write timeout");
++	}
++	gicr_write32(GICR_WAKER, gicr_read32(GICR_WAKER) & ~GICR_WAKER_PROCESSORSLEEP);
++	__builtin_arm_dsb(DSB_SY);
++	pe_init_fiq();
++	__builtin_arm_dsb(DSB_SY);
++	__builtin_arm_isb(ISB_SY);
++	uint32_t enabled = gicr_read32(GICR_ISENABLER0);
++	kprintf("GINKGO GIC rearm: before=%x after=%x required=%x\n", before, enabled, required);
++	if ((enabled & required) != required) {
++		panic("GINKGO GIC: SGI/timer not enabled: got=%x required=%x", enabled, required);
++	}
++	(void)ml_set_interrupts_enabled(interrupts);
++}
++
+ void sweet_gic_probe(const char *stage);
+ void
+ sweet_gic_probe(const char *stage)
