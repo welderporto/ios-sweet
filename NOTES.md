@@ -1,3 +1,9 @@
+## Completed ginkgo userland static audit (2026-11-05)
+
+Audit source `ed05492b9e83a02fb94fd2426fb087e18315fbb5`, CI `42110623813`: completed on macOS Intel with native/Python scanner equivalence controls. The pinned iOS 16.7.16 build 20H392 audit covered launchd, dyld, 2,710 cached libraries and 387,339,097 instruction words across 43 cache files. Verdict is **requires-review**, not physical compatibility. launchd had no detected candidates; dyld has one candidate word 0x78a5636f (also a SHA-256 constant, not automatically exempted). Core-library candidates include libdispatch LSE=697, libsystem_pthread=86, libsystem_platform=81 and libsystem_malloc=20; libBNNS FP16=1290. Literal pools and CPU-dependent optional paths still need review. Full totals: LSE 991, PAuth 74, FP16 1334, RCpc 1.
+
+Next: review LSE control flow and feature selection before preparing Apple launchd/library runtime tests. No new physical boot or partition write was performed in this stage. Earlier whole-segment candidates are not accepted compatibility verdicts. Root workspace report and source lock record exact artifact provenance; no Apple binaries were uploaded.
+
 ## ginkgo userland compatibility work (2026-11-05)
 
 The next stage audits iOS 16.7.16 build 20H392 startup programs and shared-cache code before another physical experiment. The Apple IPSW is SHA-1 pinned, selected ZIP members are CRC-checked, and macOS mounts them read-only. No Apple binaries are published in artifacts; only metadata and logs.
