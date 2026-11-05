@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/ginkgo-userland-audit.yml
       - tools/audit-ginkgo-userland.py
+      - tools/test-userland-audit.py
 permissions:
   contents: read
 concurrency:
@@ -13,10 +14,12 @@ concurrency:
   cancel-in-progress: true
 jobs:
   audit:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+      - name: Verify the ISA audit controls
+        run: python3 tools/test-userland-audit.py
       - name: Fetch pinned iOS 16.7.16 from Apple
         timeout-minutes: 15
         run: |
