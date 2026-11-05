@@ -1,3 +1,11 @@
+## ginkgo RAM-only physical milestone (2026-11-04)
+
+A user-supplied photo of the physical Redmi Note 8 confirms `BSD root: md0`, `load_init_program` selecting `/sbin/launchd`, `*** SWEET userspace: init running as PID 1 ***`, and repeated `SWEET init: still alive`. This is the open-source minimal RAM userspace, not the iOS graphical system. Return to Android after this test is pending verification. No partition flashing was performed; the image was loaded with temporary `fastboot boot`.
+
+Kernel source `5f7f8f35fc51d7b5b008e23042d86361a4bddfb6`, kernel CI `41939778901`, SHA-256 `e5b6b2951d2ed04d17f8b4671378b404fb6bdb29ea01ec8fb8ee0df036dd065e`; QEMU validation `41940233100` passed registered-CPU GIC rearm/readback, PID 1 and heartbeat. Patch 0091 reapplies GIC SGI/PPI configuration from registered CPU startup and checks enable readback. The preceding physical probe showed pending SGI/timer with enable register zero and no IRQ delivery. The new photo proves userspace progress; exact physical IRQ counter values are not visible and are not inferred.
+
+The older ginkgo notes below describe the earlier state and other hardware samples. In particular, their claim that no ginkgo physical boot exists is historical. eMMC, touchscreen, GPU, Wi-Fi and iOS UI are outside this milestone. Keep subsequent experiments RAM-only until explicitly scoped otherwise.
+
 # iOS 16 on sweet (Redmi Note 10 Pro, SM7150) - working notes
 
 ## ginkgo port (Redmi Note 8, SM6125, M1908C3JC China) - branch `ginkgo`, started 2026-10-20
