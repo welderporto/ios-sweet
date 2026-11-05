@@ -68,7 +68,7 @@ jobs:
             python3 tools/ginkgo-ram-adt.py artifacts/$target.adt "${extra[@]}"
             python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/$target.adt artifacts/$target-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 ginkgo_irq_probe=1 startup_debug=1'
           done
-          python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/qemu-payload.bin artifacts/ram-test | tee artifacts/ram-test-result.txt
+          python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/qemu-payload.bin artifacts/ram-test --require-gic-rearm | tee artifacts/ram-test-result.txt
           find artifacts -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > artifacts/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: always()

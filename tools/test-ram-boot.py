@@ -20,6 +20,7 @@ ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument('image')
 ap.add_argument('payload')
 ap.add_argument('outdir')
+ap.add_argument('--require-gic-rearm', action='store_true')
 args = ap.parse_args()
 out = Path(args.outdir).resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,14 @@ try:
         if re.search(r'init running as PID\s*1', evidence, re.I) and 'still alive' in evidence.lower():
             if 'panic(cpu' in text:
                 raise RuntimeError('Kernel panic in QEMU')
+            if args.require_gic_rearm:
+                rearm = re.search(r'GINKGO GIC rearm: before=([0-9a-f]+) after=([0-9a-f]+) required=([0-9a-f]+)', text, re.I)
+                if not rearm:
+                    raise RuntimeError('Registered CPU did not report the GIC rearm')
+                enabled, required = (int(rearm.group(i), 16) for i in (2, 3))
+                if not required or enabled & required != required:
+                    raise RuntimeError('GIC readback does not enable the required sources')
+                print('PASS: registered CPU GIC rearm/readback observed')
             print(evidence)
             passed = True
             break
