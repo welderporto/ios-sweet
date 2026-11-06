@@ -1,3 +1,11 @@
+## Private GUI root assembly passed (2026-11-05)
+
+GUI research CI `42148482399`, source `cc009fa72b09696a459c4436f724983ef9bdb33e`: native HFSX create/raw-prefix/virtual-device fsck smoke passed; pinned kernel/loader/resolver evidence passed; the QEMU-only 2 GiB ARMv8.0 open PID 1/heartbeat/LSE-disabled control passed. The complete pinned Apple root assembly and HFS verification step completed successfully at 2026-11-06 02:32:28 UTC. The original Setup GUI runtime test is now in progress; no GUI success is claimed yet. Inspect artifact frames and kernel logs when it completes.
+
+Assembly fixes: blank HFSX creation uses the supported size-based default; exact flat HFSX volumes are accepted without a UDIF footer; GNU rsync preserves numeric owners and hardlinks from read-only sources; the new research root is synced before forced detach. fsck runs only on a virtual device whose hdiutil registry backing path exactly matches the newly created regular image. Earlier CI `42145222936` copied all three components (~11 GiB used) but timed out at normal detach before runtime; it is not GUI evidence.
+
+The root is a private ephemeral 16 GiB QEMU disk, not a phone RAM image. Physical experiments still have a conservative 1 GiB RAM window; a storage strategy and device-specific image are required before physical GUI testing. No new phone boot, flash, erase or userdata write occurred in this phase. Keep the original Setup UI; no activation/account state is seeded.
+
 ## Preparing controlled GUI runtime (2026-11-05)
 
 Core resolver metadata from CI `42139423282` (source `885706108ad60bc63b314fecfa7a62053e048a5f`) shows 10 selected exported API resolvers depend only on xnu-8796 commpage LSE bit 25. The fail-closed local model selects non-LSE entry functions with the bit clear; selected direct function bodies have no decoded LSE sites. This does not certify transitive calls or all runtime paths. dyld's lone static candidate lies inside a complete exact SHA-256 K256 table.
