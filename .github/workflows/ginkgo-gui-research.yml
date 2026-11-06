@@ -20,7 +20,7 @@ concurrency:
 jobs:
   gui:
     runs-on: macos-15-intel
-    timeout-minutes: 50
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
       - name: Verify root-image safety and resolver controls
@@ -59,7 +59,7 @@ jobs:
       - name: Emulator dependencies
         timeout-minutes: 8
         run: |
-          brew install qemu tesseract
+          brew install qemu tesseract rsync
           qemu-system-aarch64 --version | tee artifacts/qemu-version.txt
       - name: Require ARMv8.0 kernel and commpage control before proprietary userland
         timeout-minutes: 4
@@ -71,10 +71,11 @@ jobs:
           python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/probe-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 ginkgo_irq_probe=1'
           python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/probe-payload.bin artifacts/open-control --cpu cortex-a35 --require-gic-rearm --require-text 'LSE disabled' | tee artifacts/open-control.txt
       - name: Build a private QEMU-only HFSX research root
-        timeout-minutes: 20
+        timeout-minutes: 35
         run: |
           set -o pipefail
-          sudo "$(command -v python3)" tools/mk-ginkgo-gui-root.py "$RUNNER_TEMP/gui-work" "$GITHUB_WORKSPACE/artifacts/root-build.json" | tee artifacts/root-build.log
+          curl --fail --location --retry 2 --connect-timeout 20 --max-time 800 'https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw' -o "$RUNNER_TEMP/gui-ios.ipsw"
+          sudo "$(command -v python3)" tools/mk-ginkgo-gui-root.py "$RUNNER_TEMP/gui-work" "$GITHUB_WORKSPACE/artifacts/root-build.json" --ipsw "$RUNNER_TEMP/gui-ios.ipsw" --rsync "$(brew --prefix rsync)/bin/rsync" | tee artifacts/root-build.log
           sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/gui-work/ginkgo-root.img"
       - name: Try the original Setup interface on ARMv8.0
         timeout-minutes: 17

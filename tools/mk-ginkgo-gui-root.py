@@ -69,7 +69,7 @@ def safe(root, relative):
 def create_image(path, size='16g'):
     # Blank size-based images use hdiutil's default writable UDIF format.
     # -format is restricted to source-folder/device creation on this macOS.
-    subprocess.run(['hdiutil', 'create', '-size', size, '-layout', 'NONE',
+    subprocess.run(['hdiutil', 'create', '-size', size, '-layout', 'NONE', '-nospotlight',
                     '-fs', 'HFSX', '-volname', 'GinkgoResearch', str(path)], check=True, timeout=180)
 
 
@@ -141,20 +141,35 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('work', type=Path)
     ap.add_argument('report', type=Path)
+    ap.add_argument('--ipsw', type=Path, help='local complete IPSW; verified before extraction')
+    ap.add_argument('--rsync', type=Path, required=True, help='absolute GNU rsync binary path')
     args = ap.parse_args()
     assert sys.platform == 'darwin' and os.geteuid() == 0, 'Needs macOS and root for image ownership'
     work = args.work.resolve()
     assert not work.exists(), 'Refusing to overwrite an existing research directory'
     work.mkdir(parents=True)
+    assert args.rsync.is_absolute() and args.rsync.is_file(), 'GNU rsync executable required'
+    subprocess.run([str(args.rsync), '--version'], check=True)
     image, root = work / 'ginkgo-root.dmg', work / 'root'
     root.mkdir()
     subprocess.run(['df', '-h', str(work)], check=True)
     create_image(image)
     subprocess.run(['hdiutil', 'attach', '-nobrowse', '-owners', 'on', '-mountpoint', str(root), str(image)], check=True, timeout=180)
+    (root / '.metadata_never_index').touch()
     fetch = load('fetch', 'ipsw-fetch.py')
     sources = []
     try:
-        with RemoteZip(fetch) as remote, zipfile.ZipFile(remote) as archive:
+        if args.ipsw:
+            print('Verifying pinned complete IPSW', flush=True)
+            digest = hashlib.sha1()
+            with args.ipsw.open('rb') as stream:
+                while chunk := stream.read(8 << 20):
+                    digest.update(chunk)
+            assert digest.hexdigest() == '5606c298c1d908f8a48f617f0ceaf71f2a9f0193', 'Unexpected complete IPSW'
+            source_zip = args.ipsw.open('rb')
+        else:
+            source_zip = RemoteZip(fetch)
+        with source_zip as remote, zipfile.ZipFile(remote) as archive:
             for role, member, digest in IMAGES:
                 target = work / member
                 print(f'Fetching pinned {role}', flush=True)
@@ -164,14 +179,15 @@ def main():
                         hash_.update(chunk);destination.write(chunk)
                 assert hash_.hexdigest() == digest, f'{role} digest mismatch'
                 mount = work / ('source-' + role);mount.mkdir()
-                subprocess.run(['hdiutil', 'attach', '-readonly', '-nobrowse', '-owners', 'off',
+                subprocess.run(['hdiutil', 'attach', '-readonly', '-nobrowse', '-owners', 'on',
                                 '-mountpoint', str(mount), str(target)], check=True, timeout=180)
                 try:
                     destination = root if role == 'OS' else safe(root, 'private/preboot/Cryptexes/' + ('OS' if role == 'SystemOS' else 'App'))
                     destination.mkdir(parents=True, exist_ok=True)
                     print(f'Copying {role} without filesystem compression attributes', flush=True)
-                    subprocess.run(['/usr/bin/rsync', '-aH', '--numeric-ids', '--exclude=/.fseventsd',
-                                    '--exclude=/.Trashes', str(mount) + '/', str(destination) + '/'], check=True, timeout=600)
+                    subprocess.run([str(args.rsync), '-aH', '--whole-file', '--numeric-ids', '--info=progress2,stats2',
+                                    '--exclude=/.fseventsd', '--exclude=/.Trashes', str(mount) + '/',
+                                    str(destination) + '/'], check=True, timeout=1200)
                 finally:
                     subprocess.run(['hdiutil', 'detach', str(mount)], check=True, timeout=60)
                 target.unlink()  # exact downloaded workspace file, after detach
@@ -187,6 +203,7 @@ def main():
     image.rename(raw)
     subprocess.run(['/sbin/fsck_hfs', '-fn', str(raw)], check=True, timeout=240)
     report = {'build': '20H392', 'image': str(raw), 'bytes': size, 'sources': sources,
+              'sourceMethod': 'pinned-complete-ipsw' if args.ipsw else 'pinned-components-over-ranges',
               'scope': 'QEMU-only private HFSX research root; no phone partition destination',
               'setup': 'Original Setup UI retained; no activation or account state seeded'}
     args.report.parent.mkdir(parents=True, exist_ok=True)
