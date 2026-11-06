@@ -139,7 +139,7 @@ def main():
     image, root = work / 'ginkgo-root.dmg', work / 'root'
     root.mkdir()
     subprocess.run(['df', '-h', str(work)], check=True)
-    subprocess.run(['hdiutil', 'create', '-size', '16g', '-type', 'UDRW', '-layout', 'NONE',
+    subprocess.run(['hdiutil', 'create', '-size', '16g', '-format', 'UDRW', '-layout', 'NONE',
                     '-fs', 'HFSX', '-volname', 'GinkgoResearch', str(image)], check=True, timeout=180)
     subprocess.run(['hdiutil', 'attach', '-nobrowse', '-owners', 'on', '-mountpoint', str(root), str(image)], check=True, timeout=180)
     fetch = load('fetch', 'ipsw-fetch.py')
