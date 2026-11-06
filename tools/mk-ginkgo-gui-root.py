@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import struct
 import subprocess
@@ -93,6 +94,36 @@ def strip_udrw(path):
             assert size == length_on_disk and size > 2048, 'Not an exact flat HFSX image'
         image.truncate(size)
     return size
+
+
+def image_device(attachment, registry, path):
+    entries = attachment['system-entities']
+    assert not any(e.get('mount-point') for e in entries), 'Filesystem unexpectedly mounted'
+    devices = [e['dev-entry'] for e in entries if re.fullmatch(r'/dev/disk[0-9]+', e.get('dev-entry', ''))]
+    assert len(devices) == 1, 'Expected one unpartitioned image device'
+    device = devices[0]
+    assert any(Path(image.get('image-path', '')).resolve() == path.resolve()
+               and any(e.get('dev-entry') == device for e in image.get('system-entities', []))
+               for image in registry.get('images', [])), 'Device does not belong to the research image'
+    return device
+
+
+def verify_hfs_image(path, repair=False):
+    """Use only the virtual device proven to be backed by this regular image."""
+    assert path.is_file() and os.geteuid() == 0
+    attachment = plistlib.loads(subprocess.check_output(['hdiutil', 'attach', '-nomount', '-plist', str(path)], timeout=180))
+    registry = plistlib.loads(subprocess.check_output(['hdiutil', 'info', '-plist'], timeout=30))
+    device = image_device(attachment, registry, path)
+    raw_device = device.replace('/dev/disk', '/dev/rdisk', 1)
+    try:
+        check = subprocess.run(['/sbin/fsck_hfs', '-fn', raw_device], timeout=240)
+        if check.returncode and repair:
+            subprocess.run(['/sbin/fsck_hfs', '-fy', raw_device], timeout=240)
+            subprocess.run(['/sbin/fsck_hfs', '-fn', raw_device], check=True, timeout=240)
+        else:
+            check.check_returncode()
+    finally:
+        subprocess.run(['hdiutil', 'detach', '-force', device], check=True, timeout=180)
 
 
 def seed(root):
@@ -204,11 +235,7 @@ def main():
     size = strip_udrw(image)
     raw = work / 'ginkgo-root.img'
     image.rename(raw)
-    check = subprocess.run(['/sbin/fsck_hfs', '-fn', str(raw)], timeout=240)
-    if check.returncode:
-        # Repair is permitted only on this fresh research file, never a device.
-        subprocess.run(['/sbin/fsck_hfs', '-fy', str(raw)], timeout=240)
-        subprocess.run(['/sbin/fsck_hfs', '-fn', str(raw)], check=True, timeout=240)
+    verify_hfs_image(raw, repair=True)
     report = {'build': '20H392', 'image': str(raw), 'bytes': size, 'sources': sources,
               'sourceMethod': 'pinned-complete-ipsw' if args.ipsw else 'pinned-components-over-ranges',
               'scope': 'QEMU-only private HFSX research root; no phone partition destination',

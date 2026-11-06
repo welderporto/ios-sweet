@@ -49,6 +49,16 @@ class SafetyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 builder.safe(Path(tmp), '../outside')
 
+    def test_device_must_belong_to_exact_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'research.img'
+            attachment = {'system-entities': [{'dev-entry': '/dev/disk3'}]}
+            registry = {'images': [{'image-path': str(path), 'system-entities': [{'dev-entry': '/dev/disk3'}]}]}
+            self.assertEqual(builder.image_device(attachment, registry, path), '/dev/disk3')
+            registry['images'][0]['image-path'] = str(Path(tmp) / 'other.img')
+            with self.assertRaises(AssertionError):
+                builder.image_device(attachment, registry, path)
+
 
 if __name__ == '__main__':
     unittest.main()

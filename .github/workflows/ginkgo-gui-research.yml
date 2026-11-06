@@ -30,15 +30,15 @@ jobs:
           mkdir -p artifacts/gui artifacts/kernel
           df -h
           hdiutil create -help > artifacts/hdiutil-create-help.txt 2>&1 || true
-          python3 - <<'PY'
-          import importlib.util, os, subprocess
+          sudo "$(command -v python3)" - "$RUNNER_TEMP/ginkgo-fs-smoke.dmg" <<'PY'
+          import importlib.util, sys
           from pathlib import Path
           s=importlib.util.spec_from_file_location('root_builder','tools/mk-ginkgo-gui-root.py')
           m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-          p=Path(os.environ['RUNNER_TEMP'])/'ginkgo-fs-smoke.dmg'
+          p=Path(sys.argv[1])
           m.create_image(p, '64m')
           assert m.strip_udrw(p) >= 32 << 20
-          subprocess.run(['sudo', '/sbin/fsck_hfs', '-fn', str(p)], check=True, timeout=90)
+          m.verify_hfs_image(p)
           p.unlink()
           print('PASS: native HFSX creation and raw-prefix verification')
           PY
