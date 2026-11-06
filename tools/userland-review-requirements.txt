@@ -1,0 +1,1 @@
+https://files.pythonhosted.org/packages/66/28/72a0be2325e6ee459f27cdcd835d3eee6fed5136321b5f7be41b41dc8656/capstone-5.0.6-py3-none-macosx_10_9_x86_64.whl --hash=sha256:539191906a34ad1c573ec12b787b2caf154ea41175db6ded9def00aea8151099

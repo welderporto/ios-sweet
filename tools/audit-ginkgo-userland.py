@@ -53,6 +53,7 @@ def main():
     ap.add_argument('work', type=Path)
     ap.add_argument('report', type=Path)
     ap.add_argument('--native', type=Path)
+    ap.add_argument('--review', action='store_true')
     args = ap.parse_args()
     assert digest(args.ipsw, 'sha1') == IPSW_SHA1, 'Unexpected IPSW SHA-1'
     args.work.mkdir(parents=True, exist_ok=True)
@@ -60,6 +61,12 @@ def main():
     isa = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(isa)
     scanner = code.Scanner(isa, args.native)
+    reviewer = review_module = None
+    if args.review:
+        review_spec = importlib.util.spec_from_file_location('review', Path(__file__).with_name('review-userland-code.py'))
+        review_module = importlib.util.module_from_spec(review_spec)
+        review_spec.loader.exec_module(review_module)
+        reviewer = review_module.make_reviewer(code, isa)
     report = {'build': BUILD, 'ipswSha1': IPSW_SHA1, 'images': [], 'files': [],
               'limitations': ['Linear scan candidates can be embedded data or optional CPU paths.',
                               'No hits is not proof of physical runtime compatibility.',
@@ -98,7 +105,7 @@ def main():
                 assert paths, f'No audit inputs in {role}'
                 if role == 'Cryptex1,SystemOS':
                     paths = [p for p in paths if not p.name.endswith('.symbols')]
-                    sources, records = code.cache_audit(paths, scanner)
+                    sources, records = code.cache_audit(paths, scanner, reviewer)
                     report['cacheSources'] = sources
                     for record in records:
                         record['file'] = role + '/' + record['file'].lstrip('/')
@@ -113,6 +120,12 @@ def main():
                     label = role + '/' + path.relative_to(mount).as_posix()
                     print(f'Scanning {label}', flush=True)
                     record = audit_file(path, label, isa, scanner)
+                    if review_module:
+                        data = path.read_bytes()
+                        record['knownTables'] = []
+                        for base in isa.thin_slices(data):
+                            for _, address, size, offset in code.sections(data[base:]):
+                                record['knownTables'].extend(review_module.known_tables(data[base + offset:base + offset + size], address))
                     report['files'].append(record)
                     checkpoint(f'{label}: scanned')
                     print(json.dumps(record), flush=True)
@@ -122,6 +135,10 @@ def main():
     assert all(f['instructionWords'] > 0 for f in report['files'][:2]), 'Missing startup code'
     assert any(f['architecture'] == 'arm64' and f['instructionWords'] > 0 and
                f['file'].startswith('Cryptex1,SystemOS/') for f in report['files']), 'Missing arm64 cache code'
+    if args.review:
+        reviewed = [f for f in report['files'] if 'review' in f]
+        assert len(reviewed) == 4, 'Missing core-library review'
+        assert sum(len(f['review']['selectedAPIs']) for f in reviewed) > 0, 'No exported APIs resolved'
     report['assessment'] = ('requires-review' if any(f['candidateCounts'] or f['architecture'] != 'arm64'
                                                    for f in report['files']) else 'no-detected-extension')
     checkpoint('complete')

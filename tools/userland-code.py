@@ -62,7 +62,7 @@ class Scanner:
         return len(blob) // 4
 
 
-def cache_audit(paths, scanner):
+def cache_audit(paths, scanner, review=None):
     """Resolve each image and code section across every subcache by VM address."""
     with ExitStack() as stack:
         mappings, sources = [], []
@@ -118,7 +118,12 @@ def cache_audit(paths, scanner):
             for name, section_address, size, _ in sections(header):
                 words += scanner.scan(read(section_address, size), counts, samples,
                                       section_address, name)
-            results.append({'file': label, 'architecture': 'arm64', 'instructionWords': words,
-                            'candidateCounts': counts, 'samples': samples})
+            record = {'file': label, 'architecture': 'arm64', 'instructionWords': words,
+                      'candidateCounts': counts, 'samples': samples}
+            if review:
+                detail = review(label, address, header, read)
+                if detail is not None:
+                    record['review'] = detail
+            results.append(record)
         assert sum(r['instructionWords'] for r in results) > 0
         return sources, results
