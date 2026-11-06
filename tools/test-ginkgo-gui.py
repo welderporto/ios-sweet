@@ -17,6 +17,14 @@ def load(name, filename):
     return module
 
 
+def update_evidence(result, log):
+    # Kernel rings wrap during daemon startup; retain already observed events.
+    for key, marker in (('rootMounted', 'BSD root: vblk0'),
+                        ('appleLaunchdAttempted', 'load_init_program: attempting to load /sbin/launchd'),
+                        ('kernelPanic', 'panic(cpu')):
+        result[key] = bool(result.get(key)) or marker in log
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('shim', type=Path)
@@ -46,7 +54,7 @@ def main():
         try:
             candidates = 0
             while time.monotonic() - started < args.seconds:
-                time.sleep(30)
+                time.sleep(30 if result.get('appleLaunchdAttempted') else 5)
                 elapsed = int(time.monotonic() - started)
                 if process.poll() is not None:
                     raise RuntimeError(f'QEMU exited {process.returncode}')
@@ -56,6 +64,7 @@ def main():
                 except SystemExit:
                     pass
                 log = (out / 'kernel.txt').read_text(errors='replace') if (out / 'kernel.txt').exists() else ''
+                (out / f'kernel-{elapsed:04d}.txt').write_text(log)
                 raw = out / 'frame.raw';frame = out / f'frame-{elapsed:04d}.png'
                 replies = shim.qmp(mon, ('pmemsave', {'val': shim.FB_BASE, 'size': shim.FB_STRIDE * shim.FB_H, 'filename': str(raw)}))
                 assert not any('error' in reply for reply in replies), replies
@@ -65,9 +74,7 @@ def main():
                 candidate = bool(re.search(r'press\s+home|swipe\s+up|quick\s+start|country\s+or\s+region|\bhello\b', text, re.I))
                 candidates = candidates + 1 if candidate else 0
                 result['frames'].append({'seconds': elapsed, 'file': frame.name, 'guiTextCandidate': candidate})
-                result['rootMounted'] = 'BSD root: vblk0' in log
-                result['appleLaunchdAttempted'] = 'load_init_program: attempting to load /sbin/launchd' in log
-                result['kernelPanic'] = 'panic(cpu' in log
+                update_evidence(result, log)
                 print(json.dumps(result['frames'][-1]), flush=True)
                 (out / 'result.json').write_text(json.dumps(result, indent=2) + '\n')
                 if result['kernelPanic']:
