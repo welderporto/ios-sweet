@@ -33,6 +33,17 @@ class SafetyTests(unittest.TestCase):
                 builder.strip_udrw(path)
             self.assertEqual(path.stat().st_size, 4096)
 
+    def test_exact_flat_hfs_image_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'research.dmg';image = bytearray(8192)
+            image[1024:1026] = b'HX'
+            struct.pack_into('>2I', image, 1024 + 40, 512, 16)
+            path.write_bytes(image)
+            self.assertEqual(builder.strip_udrw(path), 8192)
+            path.write_bytes(image + b'unknown footer')
+            with self.assertRaises(AssertionError):
+                builder.strip_udrw(path)
+
     def test_path_escape_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):

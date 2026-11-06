@@ -74,20 +74,23 @@ def create_image(path, size='16g'):
 
 
 def strip_udrw(path):
-    """Require an uncompressed, zero-offset HFSX data fork before removing UDIF."""
+    """Accept an exact raw HFSX volume or strip a verified zero-offset UDIF fork."""
     with path.open('r+b') as image:
+        length_on_disk = image.seek(0, 2)
         image.seek(-512, 2)
         trailer = image.read(512)
-        assert trailer[:4] == b'koly', 'Missing UDIF trailer'
-        offset, length = struct.unpack_from('>2Q', trailer, 24)
-        assert offset == 0, 'Data fork is not a raw prefix'
         image.seek(1024)
         header = image.read(512)
         assert header[:2] == b'HX', 'Expected raw case-sensitive HFSX volume'
         block, count = struct.unpack_from('>2I', header, 40)
         assert 512 <= block <= 1 << 20 and block & (block - 1) == 0
         size = block * count
-        assert 2048 < size <= length, 'Volume exceeds uncompressed data fork'
+        if trailer[:4] == b'koly':
+            offset, length = struct.unpack_from('>2Q', trailer, 24)
+            assert offset == 0, 'Data fork is not a raw prefix'
+            assert 2048 < size <= length, 'Volume exceeds uncompressed data fork'
+        else:
+            assert size == length_on_disk and size > 2048, 'Not an exact flat HFSX image'
         image.truncate(size)
     return size
 
