@@ -66,6 +66,13 @@ def safe(root, relative):
     return path
 
 
+def create_image(path, size='16g'):
+    # Blank size-based images use hdiutil's default writable UDIF format.
+    # -format is restricted to source-folder/device creation on this macOS.
+    subprocess.run(['hdiutil', 'create', '-size', size, '-layout', 'NONE',
+                    '-fs', 'HFSX', '-volname', 'GinkgoResearch', str(path)], check=True, timeout=180)
+
+
 def strip_udrw(path):
     """Require an uncompressed, zero-offset HFSX data fork before removing UDIF."""
     with path.open('r+b') as image:
@@ -139,8 +146,7 @@ def main():
     image, root = work / 'ginkgo-root.dmg', work / 'root'
     root.mkdir()
     subprocess.run(['df', '-h', str(work)], check=True)
-    subprocess.run(['hdiutil', 'create', '-size', '16g', '-format', 'UDRW', '-layout', 'NONE',
-                    '-fs', 'HFSX', '-volname', 'GinkgoResearch', str(image)], check=True, timeout=180)
+    create_image(image)
     subprocess.run(['hdiutil', 'attach', '-nobrowse', '-owners', 'on', '-mountpoint', str(root), str(image)], check=True, timeout=180)
     fetch = load('fetch', 'ipsw-fetch.py')
     sources = []

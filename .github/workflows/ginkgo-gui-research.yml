@@ -29,6 +29,18 @@ jobs:
           python3 tools/test-resolver-model.py
           mkdir -p artifacts/gui artifacts/kernel
           df -h
+          hdiutil create -help > artifacts/hdiutil-create-help.txt 2>&1 || true
+          python3 - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          s=importlib.util.spec_from_file_location('root_builder','tools/mk-ginkgo-gui-root.py')
+          m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+          p=Path(os.environ['RUNNER_TEMP'])/'ginkgo-fs-smoke.dmg'
+          m.create_image(p, '64m')
+          assert m.strip_udrw(p) >= 32 << 20
+          p.unlink()
+          print('PASS: native HFSX creation and raw-prefix verification')
+          PY
       - name: Pin the validated kernel, loader and selector evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,6 +89,7 @@ jobs:
           path: |
             artifacts/source-commit.txt
             artifacts/qemu-version.txt
+            artifacts/hdiutil-create-help.txt
             artifacts/resolver-model.json
             artifacts/open-control.txt
             artifacts/open-control/*.png
