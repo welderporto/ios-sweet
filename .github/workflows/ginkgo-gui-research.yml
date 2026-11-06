@@ -82,7 +82,8 @@ jobs:
         timeout-minutes: 17
         run: |
           set -o pipefail
-          python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/gui-payload.bin --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=vblk0 vblkrw=1 rootrw=1 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 unentitled_ios_sim_launch=1 ignition_level=1 launchd_unsecure_cache=1 sweetsample=30 sweetnull=backboardd,SpringBoard,Setup slto_us=30000000 tlto_us=30000000'
+          # sweetsample selects process names; timing is fixed in patch 0054.
+          python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/gui-payload.bin --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=vblk0 vblkrw=1 rootrw=1 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 unentitled_ios_sim_launch=1 ignition_level=1 launchd_unsecure_cache=1 sweetsample=SpringBoard,backboardd,Setup sweetnull=backboardd,SpringBoard,Setup slto_us=30000000 tlto_us=30000000'
           python3 tools/test-ginkgo-gui.py artifacts/qemu-Image artifacts/gui-payload.bin "$RUNNER_TEMP/gui-work/ginkgo-root.img" artifacts/gui --seconds 900 | tee artifacts/gui-run.log
       - uses: actions/upload-artifact@v4
         if: always()
