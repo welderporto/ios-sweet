@@ -1,0 +1,91 @@
+name: ginkgo-gui-research
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ginkgo-ram-bringup]
+    paths:
+      - .github/workflows/ginkgo-gui-research.yml
+      - tools/mk-ginkgo-gui-root.py
+      - tools/ginkgo-qemu-gui-adt.py
+      - tools/test-ginkgo-gui.py
+      - tools/model-userland-resolver.py
+      - tools/test-resolver-model.py
+      - tools/test-gui-root-safety.py
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ginkgo-gui-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  gui:
+    runs-on: macos-15-intel
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify root-image safety and resolver controls
+        run: |
+          python3 tools/test-gui-root-safety.py
+          python3 tools/test-resolver-model.py
+          mkdir -p artifacts/gui artifacts/kernel
+          df -h
+      - name: Pin the validated kernel, loader and selector evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/welderporto/ios-sweet/actions/runs/41939778901 --jq .head_sha)" = 5f7f8f35fc51d7b5b008e23042d86361a4bddfb6
+          gh run download 41939778901 -R welderporto/ios-sweet -n xnu-kernel-ginkgo-slim -D artifacts/kernel
+          python3 tools/verify-ginkgo-isa.py artifacts/kernel/kernel.development.sweet e5b6b2951d2ed04d17f8b4671378b404fb6bdb29ea01ec8fb8ee0df036dd065e
+          gh run download 41930121503 -R welderporto/ios-sweet -n ginkgo-ram-bringup -D "$RUNNER_TEMP/loader"
+          python3 -c "import hashlib;from pathlib import Path;p=Path('$RUNNER_TEMP/loader/qemu-Image');assert hashlib.sha256(p.read_bytes()).hexdigest()=='984fdb738a7054fabc79a241f6aab88bbbbf59b33d3a9393eafa8da4b5852790'"
+          cp "$RUNNER_TEMP/loader/qemu-Image" artifacts/qemu-Image
+          test "$(gh api repos/welderporto/ios-sweet/actions/runs/42139423282 --jq .head_sha)" = 885706108ad60bc63b314fecfa7a62053e048a5f
+          gh run download 42139423282 -R welderporto/ios-sweet -n ginkgo-userland-review -D "$RUNNER_TEMP/review"
+          python3 -c "import hashlib;from pathlib import Path;p=Path('$RUNNER_TEMP/review/userland-isa.json');assert hashlib.sha256(p.read_bytes()).hexdigest()=='8359990a31bcf7c37afb047849f314c98182ca2a983c7107813111050d69c0fd'"
+          python3 tools/model-userland-resolver.py "$RUNNER_TEMP/review/userland-isa.json" artifacts/resolver-model.json
+          git rev-parse HEAD > artifacts/source-commit.txt
+      - name: Emulator dependencies
+        timeout-minutes: 8
+        run: |
+          brew install qemu tesseract
+          qemu-system-aarch64 --version | tee artifacts/qemu-version.txt
+      - name: Require ARMv8.0 kernel and commpage control before proprietary userland
+        timeout-minutes: 4
+        run: |
+          set -o pipefail
+          python3 tools/ginkgo-qemu-gui-adt.py artifacts/qemu.adt
+          clang -target arm64-apple-ios16.0 -DSWEET_ISA_PROBE=1 -c tools/sweet-init.S -o artifacts/init.o
+          python3 tools/mkinit.py artifacts/init.o artifacts/init.macho
+          python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/probe-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 ginkgo_irq_probe=1'
+          python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/probe-payload.bin artifacts/open-control --cpu cortex-a35 --require-gic-rearm --require-text 'LSE disabled' | tee artifacts/open-control.txt
+      - name: Build a private QEMU-only HFSX research root
+        timeout-minutes: 20
+        run: |
+          set -o pipefail
+          sudo "$(command -v python3)" tools/mk-ginkgo-gui-root.py "$RUNNER_TEMP/gui-work" "$GITHUB_WORKSPACE/artifacts/root-build.json" | tee artifacts/root-build.log
+          sudo chown "$(id -u):$(id -g)" "$RUNNER_TEMP/gui-work/ginkgo-root.img"
+      - name: Try the original Setup interface on ARMv8.0
+        timeout-minutes: 17
+        run: |
+          set -o pipefail
+          python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/gui-payload.bin --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=vblk0 vblkrw=1 rootrw=1 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 unentitled_ios_sim_launch=1 ignition_level=1 launchd_unsecure_cache=1 sweetsample=30 sweetnull=backboardd,SpringBoard,Setup slto_us=30000000 tlto_us=30000000'
+          python3 tools/test-ginkgo-gui.py artifacts/qemu-Image artifacts/gui-payload.bin "$RUNNER_TEMP/gui-work/ginkgo-root.img" artifacts/gui --seconds 900 | tee artifacts/gui-run.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ginkgo-gui-research
+          path: |
+            artifacts/source-commit.txt
+            artifacts/qemu-version.txt
+            artifacts/resolver-model.json
+            artifacts/open-control.txt
+            artifacts/open-control/*.png
+            artifacts/open-control/*.txt
+            artifacts/root-build.json
+            artifacts/root-build.log
+            artifacts/gui-run.log
+            artifacts/gui/*.json
+            artifacts/gui/*.txt
+            artifacts/gui/*.png
+            artifacts/gui/*.log
+          retention-days: 14

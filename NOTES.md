@@ -1,3 +1,11 @@
+## Preparing controlled GUI runtime (2026-11-05)
+
+Core resolver metadata from CI `42139423282` (source `885706108ad60bc63b314fecfa7a62053e048a5f`) shows 10 selected exported API resolvers depend only on xnu-8796 commpage LSE bit 25. The fail-closed local model selects non-LSE entry functions with the bit clear; selected direct function bodies have no decoded LSE sites. This does not certify transitive calls or all runtime paths. dyld's lone static candidate lies inside a complete exact SHA-256 K256 table.
+
+ISA runtime CI `42139423675`, same source, passed PID 1/heartbeat/GIC checks on QEMU cortex-a35 with `LSE disabled` and the cortex-a76 positive control with `LSE enabled`. Cortex-a35 is the emulator model only, chosen for ARMv8.0 + 16 KiB granules; the physical target remains ginkgo on its A73-derived Kryo cores. The baseline A76 RAM regression `42139423260` also passed.
+
+New GUI research workflow builds a private HFSX root from pinned Apple components, retains the original Setup UI, and uses a QEMU-only 2 GiB ADT. It gates on the resolver evidence and an open commpage control, then attempts the GUI on ARMv8.0. No physical phone boot or partition write is involved. Only logs/frames/metadata are uploaded, never the Apple root image. GUI runtime result is still pending.
+
 ## Completed ginkgo userland static audit (2026-11-05)
 
 Audit source `ed05492b9e83a02fb94fd2426fb087e18315fbb5`, CI `42110623813`: completed on macOS Intel with native/Python scanner equivalence controls. The pinned iOS 16.7.16 build 20H392 audit covered launchd, dyld, 2,710 cached libraries and 387,339,097 instruction words across 43 cache files. Verdict is **requires-review**, not physical compatibility. launchd had no detected candidates; dyld has one candidate word 0x78a5636f (also a SHA-256 constant, not automatically exempted). Core-library candidates include libdispatch LSE=697, libsystem_pthread=86, libsystem_platform=81 and libsystem_malloc=20; libBNNS FP16=1290. Literal pools and CPU-dependent optional paths still need review. Full totals: LSE 991, PAuth 74, FP16 1334, RCpc 1.
