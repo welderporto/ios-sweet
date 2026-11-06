@@ -197,11 +197,18 @@ def main():
         assert (safe(root, 'usr/lib/dyld')).is_file()
         subprocess.run(['df', '-h', str(root)], check=True)
     finally:
-        subprocess.run(['hdiutil', 'detach', str(root)], check=True, timeout=60)
+        # This is the newly created research volume only. Background macOS
+        # observers can keep it busy after the copy; flush before closing them.
+        subprocess.run(['sync'], check=True, timeout=180)
+        subprocess.run(['hdiutil', 'detach', '-force', str(root)], check=True, timeout=180)
     size = strip_udrw(image)
     raw = work / 'ginkgo-root.img'
     image.rename(raw)
-    subprocess.run(['/sbin/fsck_hfs', '-fn', str(raw)], check=True, timeout=240)
+    check = subprocess.run(['/sbin/fsck_hfs', '-fn', str(raw)], timeout=240)
+    if check.returncode:
+        # Repair is permitted only on this fresh research file, never a device.
+        subprocess.run(['/sbin/fsck_hfs', '-fy', str(raw)], timeout=240)
+        subprocess.run(['/sbin/fsck_hfs', '-fn', str(raw)], check=True, timeout=240)
     report = {'build': '20H392', 'image': str(raw), 'bytes': size, 'sources': sources,
               'sourceMethod': 'pinned-complete-ipsw' if args.ipsw else 'pinned-components-over-ranges',
               'scope': 'QEMU-only private HFSX research root; no phone partition destination',
