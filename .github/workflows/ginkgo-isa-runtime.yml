@@ -1,0 +1,69 @@
+name: ginkgo-isa-runtime
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/ginkgo-ram-bringup]
+    paths:
+      - .github/workflows/ginkgo-isa-runtime.yml
+      - tools/sweet-init.S
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ginkgo-isa-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cpu: cortex-a35
+            marker: LSE disabled
+          - cpu: cortex-a76
+            marker: LSE enabled
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=30 update -qq
+          sudo apt-get -y --no-install-recommends install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu clang qemu-system-arm cpio gzip gawk tesseract-ocr tesseract-ocr-eng
+          mkdir -p /tmp/mkbootimg artifacts/kernel
+          curl --connect-timeout 15 --max-time 90 --retry 1 -fLsS https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/refs/heads/main.tar.gz | tar xz -C /tmp/mkbootimg
+          sudo ln -s /tmp/mkbootimg/mkbootimg.py /usr/local/bin/mkbootimg
+      - name: Verify physical-validated kernel provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/welderporto/ios-sweet/actions/runs/41939778901 --jq .head_sha)" = 5f7f8f35fc51d7b5b008e23042d86361a4bddfb6
+          gh run download 41939778901 -R welderporto/ios-sweet -n xnu-kernel-ginkgo-slim -D artifacts/kernel
+          python3 tools/verify-ginkgo-isa.py artifacts/kernel/kernel.development.sweet e5b6b2951d2ed04d17f8b4671378b404fb6bdb29ea01ec8fb8ee0df036dd065e
+      - name: Build QEMU-only commpage probe
+        run: |
+          qemu-system-aarch64 -M virt,dumpdtb=/tmp/packaging-only.dtb -cpu cortex-a53 -smp 8 -m 3G -nographic -nic none
+          BOARD=qemu DTB=/tmp/packaging-only.dtb bash shim/build.sh
+          cp shim/out/Image artifacts/qemu-Image
+          clang -target arm64-apple-ios16.0 -DSWEET_ISA_PROBE=1 -c tools/sweet-init.S -o artifacts/init.o
+          python3 tools/mkinit.py artifacts/init.o artifacts/init.macho
+          python3 tools/ginkgo-ram-adt.py artifacts/qemu.adt --qemu
+          python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/qemu-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 ginkgo_irq_probe=1'
+      - name: Require PID 1, heartbeat and the advertised CPU capability
+        run: |
+          set -o pipefail
+          python3 tools/test-ram-boot.py artifacts/qemu-Image artifacts/qemu-payload.bin artifacts/ram-test --require-gic-rearm --cpu '${{ matrix.cpu }}' --require-text '${{ matrix.marker }}' | tee artifacts/result.txt
+          printf '{"cpu":"%s","expected":"%s","kernelRun":41939778901,"kernelSha256":"e5b6b2951d2ed04d17f8b4671378b404fb6bdb29ea01ec8fb8ee0df036dd065e"}\n' '${{ matrix.cpu }}' '${{ matrix.marker }}' > artifacts/probe.json
+          git rev-parse HEAD > artifacts/source-commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ginkgo-isa-${{ matrix.cpu }}
+          path: |
+            artifacts/result.txt
+            artifacts/probe.json
+            artifacts/source-commit.txt
+            artifacts/ram-test/*.txt
+            artifacts/ram-test/*.png
+            artifacts/ram-test/qemu.log
+          retention-days: 14

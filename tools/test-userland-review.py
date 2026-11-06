@@ -36,6 +36,13 @@ class ReviewTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             review.exports(b'\x00\x01x\x00\x00', 0x1000)
 
+    def test_resolver_address_is_distinct_from_stub(self):
+        root = b'\x00\x01_x\x00'
+        trie = root + bytes([len(root) + 1]) + b'\x03\x10\x04\x08\x00'
+        symbol = review.exports(trie, 0x1000)[0]
+        self.assertEqual(symbol['address'], 0x1004)
+        self.assertEqual(symbol['resolverAddress'], 0x1008)
+
     def test_exported_api_with_inline_lse(self):
         name = b'_dispatch_group_enter'
         root = b'\x00\x01' + name + b'\x00'

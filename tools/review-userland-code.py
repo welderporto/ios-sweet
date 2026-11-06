@@ -38,7 +38,12 @@ def exports(data, base):
             if not flags & 8:  # reexports have no code entry in this image
                 value, q = uleb(data, q)
                 address = value if flags & 3 == 2 else base + value
-                result.append({'name': prefix, 'address': address, 'flags': flags})
+                record = {'name': prefix, 'address': address, 'flags': flags}
+                if flags & 16:
+                    resolver, q = uleb(data, q)
+                    record['resolverAddress'] = base + resolver
+                assert q <= children, 'Export terminal exceeds its declared size'
+                result.append(record)
         n = data[children]
         p = children + 1
         for _ in range(n):
@@ -112,7 +117,26 @@ def function_metadata(header, base, read):
 
 def make_reviewer(code, isa):
     from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
+    from capstone.arm64 import ARM64_OP_REG, ARM64_OP_IMM, ARM64_OP_MEM
     disassembler = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
+    disassembler.detail = True
+    def instruction_record(instruction):
+        operands = []
+        for op in instruction.operands:
+            if op.type == ARM64_OP_REG:
+                item = {'type': 'reg', 'reg': instruction.reg_name(op.reg)}
+            elif op.type == ARM64_OP_IMM:
+                item = {'type': 'imm', 'value': op.imm}
+            elif op.type == ARM64_OP_MEM:
+                item = {'type': 'mem', 'base': instruction.reg_name(op.mem.base),
+                        'index': instruction.reg_name(op.mem.index), 'disp': op.mem.disp}
+            else:
+                item = {'type': 'unsupported', 'id': op.type}
+            item['shift'] = {'type': op.shift.type, 'value': op.shift.value}
+            operands.append(item)
+        return {'address': instruction.address, 'mnemonic': instruction.mnemonic,
+                'operands': instruction.op_str, 'detail': operands,
+                'cc': instruction.cc, 'updateFlags': instruction.update_flags}
     def review(label, base, header, read):
         if not label.endswith(CORE):
             return None
@@ -159,12 +183,22 @@ def make_reviewer(code, isa):
                 if (not branch and instruction.mnemonic.startswith(LSE_MNEMONICS)
                         and not any(t['address'] <= instruction.address < t['address'] + t['bytes'] for t in tables)):
                     before.append(instruction.address)
-            entries.append({**symbol, 'end': end, 'boundsFromFunctionStarts': bool(starts),
+            entry = {**symbol, 'end': end, 'boundsFromFunctionStarts': bool(starts),
                             'resolverExport': bool(symbol['flags'] & 16),
                             'lseBeforeFirstBranch': before,
-                            'entryInstructions': [{'address': i.address, 'mnemonic': i.mnemonic,
-                                                   'operands': i.op_str} for i in prefix]})
-        return {'functionStarts': len(starts), 'exports': len(symbols), 'lseSites': sites,
+                            'entryInstructions': [instruction_record(i) for i in prefix]}
+            resolver = symbol.get('resolverAddress')
+            if resolver is not None:
+                match = next((r for r in records if r[0] <= resolver < r[1]), None)
+                if match:
+                    index = bisect_right(starts, resolver)
+                    end = min(match[1], starts[index] if index < len(starts) else match[1])
+                    blob = match[2][resolver - match[0]:min(end, resolver + 128) - match[0]]
+                    entry['resolverEnd'] = end
+                    entry['resolverTruncated'] = len(blob) < end - resolver
+                    entry['resolverInstructions'] = [instruction_record(i) for i in disassembler.disasm(blob, resolver)]
+            entries.append(entry)
+        return {'functionStarts': len(starts), 'functionStartAddresses': starts, 'exports': len(symbols), 'lseSites': sites,
                 'knownTables': tables, 'selectedAPIs': entries,
                 'limits': 'Decoding is not runtime execution. Resolver exports and outer CPU dispatch require review.'}
     return review

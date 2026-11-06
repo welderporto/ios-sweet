@@ -58,6 +58,9 @@ _start:
 	sub	x2, x2, x1
 	bl	write_console
 
+#ifdef SWEET_ISA_PROBE
+	bl	isa_probe
+#endif
 tick:
 	/* select(0, NULL, NULL, NULL, &5s) as a portable sleep */
 	mov	x0, #0
@@ -72,6 +75,9 @@ tick:
 	adr	x2, alive_end
 	sub	x2, x2, x1
 	bl	write_console
+#ifdef SWEET_ISA_PROBE
+	bl	isa_probe
+#endif
 	b	tick
 
 /* write(x19, x1, x2) */
@@ -84,6 +90,30 @@ write_console:
 hang:
 	b	hang
 
+#ifdef SWEET_ISA_PROBE
+/* xnu-8796 commpage: capabilities64 at 0xfffffc010, LSE is bit 25. */
+isa_probe:
+	movz	x9, #0xc000
+	movk	x9, #0xffff, lsl #16
+	movk	x9, #0x000f, lsl #32
+	ldr	x10, [x9, #0x10]
+	tbnz	x10, #25, isa_enabled
+	adr	x1, isa_disabled_text
+	adr	x2, isa_disabled_end
+	sub	x2, x2, x1
+	b	write_console
+isa_enabled:
+	adr	x1, isa_enabled_text
+	adr	x2, isa_enabled_end
+	sub	x2, x2, x1
+	b	write_console
+isa_disabled_text:
+	.ascii	"ISA probe: LSE disabled\n"
+isa_disabled_end:
+isa_enabled_text:
+	.ascii	"ISA probe: LSE enabled\n"
+isa_enabled_end:
+#endif
 	.p2align 3
 five_sec:
 	.quad	5			/* tv_sec */

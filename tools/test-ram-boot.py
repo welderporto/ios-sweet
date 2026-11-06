@@ -21,6 +21,8 @@ ap.add_argument('image')
 ap.add_argument('payload')
 ap.add_argument('outdir')
 ap.add_argument('--require-gic-rearm', action='store_true')
+ap.add_argument('--cpu', choices=('cortex-a76', 'cortex-a35'), default='cortex-a76')
+ap.add_argument('--require-text', help='additional guest-console marker required for success')
 args = ap.parse_args()
 out = Path(args.outdir).resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -29,7 +31,7 @@ msg = load('qemu_msg', 'qemu-msgbuf.py')
 msg.RAM, msg.RAM_SIZE = 0x80000000, 0x10000000
 mon = str(out / 'qmp.sock')
 Path(mon).unlink(missing_ok=True)
-command = ['qemu-system-aarch64', '-M', 'virt,gic-version=3', '-cpu', 'cortex-a76',
+command = ['qemu-system-aarch64', '-M', 'virt,gic-version=3', '-cpu', args.cpu,
            '-smp', '17', '-m', '3G', '-nographic', '-nic', 'none', '-serial', 'none',
            '-monitor', 'none', '-qmp', f'unix:{mon},server,nowait', '-no-reboot',
            '-d', 'guest_errors,unimp', '-D', str(out / 'qemu.log'),
@@ -58,6 +60,8 @@ try:
         (out / 'screen.txt').write_text(ocr)
         evidence = text + '\n' + ocr
         if re.search(r'init running as PID\s*1', evidence, re.I) and 'still alive' in evidence.lower():
+            if args.require_text and args.require_text.lower() not in evidence.lower():
+                raise RuntimeError(f'Missing required console marker: {args.require_text}')
             if 'panic(cpu' in text:
                 raise RuntimeError('Kernel panic in QEMU')
             if args.require_gic_rearm:
