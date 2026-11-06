@@ -11,6 +11,7 @@ on:
       - tools/model-userland-resolver.py
       - tools/test-resolver-model.py
       - tools/test-gui-root-safety.py
+      - tools/test-gui-product.py
 permissions:
   contents: read
   actions: read
@@ -27,6 +28,7 @@ jobs:
         run: |
           python3 tools/test-gui-root-safety.py
           python3 tools/test-resolver-model.py
+          python3 tools/test-gui-product.py
           mkdir -p artifacts/gui artifacts/kernel
           df -h
           hdiutil create -help > artifacts/hdiutil-create-help.txt 2>&1 || true
@@ -60,13 +62,17 @@ jobs:
       - name: Emulator dependencies
         timeout-minutes: 8
         run: |
-          brew install qemu tesseract rsync
+          brew install qemu tesseract rsync lzfse
           qemu-system-aarch64 --version | tee artifacts/qemu-version.txt
+      - name: Fetch pinned private product identity
+        timeout-minutes: 3
+        run: |
+          python3 tools/remotezip.py 'https://updates.cdn-apple.com/2025FallFCS/fullrestores/122-77006/1158E502-D76D-4226-AA06-ED5E30CD1111/iPhone10,3,iPhone10,6_16.7.16_20H392_Restore.ipsw' DeviceTree.d22ap.im4p "$RUNNER_TEMP/product"
       - name: Require ARMv8.0 kernel and commpage control before proprietary userland
         timeout-minutes: 4
         run: |
           set -o pipefail
-          python3 tools/ginkgo-qemu-gui-adt.py artifacts/qemu.adt
+          python3 tools/ginkgo-qemu-gui-adt.py artifacts/qemu.adt --product-im4p "$RUNNER_TEMP/product/Firmware/all_flash/DeviceTree.d22ap.im4p" --identity-report artifacts/product-identity.json
           clang -target arm64-apple-ios16.0 -DSWEET_ISA_PROBE=1 -c tools/sweet-init.S -o artifacts/init.o
           python3 tools/mkinit.py artifacts/init.o artifacts/init.macho
           python3 tools/mkpayload.py artifacts/kernel/kernel.development.sweet artifacts/qemu.adt artifacts/probe-payload.bin --ramdisk artifacts/init.macho --cmdline 'debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress rd=md0 sweetusb=0 sweetkeys=0 sweettouch=0 wdt=-1 ginkgo_irq_probe=1'
@@ -94,6 +100,7 @@ jobs:
             artifacts/qemu-version.txt
             artifacts/hdiutil-create-help.txt
             artifacts/resolver-model.json
+            artifacts/product-identity.json
             artifacts/open-control.txt
             artifacts/open-control/*.png
             artifacts/open-control/*.txt
